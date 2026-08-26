@@ -36,6 +36,39 @@ local omarchy_monitor_scale = 2
 LUA
 }
 
+write_named_multiline_config() {
+  cat >"$monitor_lua" <<'LUA'
+local omarchy_gdk_scale = 2
+local omarchy_monitor_scale = 2
+hl.env("GDK_SCALE", tostring(omarchy_gdk_scale))
+hl.monitor({
+  output = "eDP-1",
+  mode = "2560x1600@60",
+  position = "0x0",
+  scale = 2,
+  vrr = 2,
+})
+hl.monitor({ output = "", mode = "preferred", position = "auto", scale = omarchy_monitor_scale })
+LUA
+}
+
+write_named_oneline_config() {
+  cat >"$monitor_lua" <<'LUA'
+local omarchy_gdk_scale = 2
+local omarchy_monitor_scale = 2
+hl.monitor({ output = "eDP-1", mode = "preferred", position = "0x0", scale = 1 })
+hl.monitor({ output = "", mode = "preferred", position = "auto", scale = omarchy_monitor_scale })
+LUA
+}
+
+write_named_variable_config() {
+  cat >"$monitor_lua" <<'LUA'
+local omarchy_gdk_scale = 2
+local omarchy_monitor_scale = 2
+hl.monitor({ output = "eDP-1", mode = "preferred", position = "auto", scale = omarchy_monitor_scale })
+LUA
+}
+
 run_scaling() {
   HOME="$home_dir" \
     XDG_STATE_HOME="$home_dir/.local/state" \
@@ -129,3 +162,30 @@ grep -F 'scale = 2' "$eval_out" >/dev/null || fail "monitor scaling down skips d
 grep -Fx 'local omarchy_monitor_scale = 2' "$monitor_lua" >/dev/null ||
   fail "monitor scaling down persists 2x after skipping duplicate approximation"
 pass "monitor scaling down skips duplicate approximation"
+
+# A named output rule with a numeric scale wins over the catch-all local on
+# Hyprland auto-reload. Persist must rewrite that scale, not only the local.
+write_named_multiline_config
+OMARCHY_TEST_MONITOR_SCALE=2 OMARCHY_TEST_MONITOR_WIDTH=2560 OMARCHY_TEST_MONITOR_HEIGHT=1600 run_scaling 1.6
+grep -Fx 'local omarchy_monitor_scale = 1.6' "$monitor_lua" >/dev/null ||
+  fail "monitor scaling named multiline still persists catch-all local"
+grep -Fx '  scale = 1.6,' "$monitor_lua" >/dev/null ||
+  fail "monitor scaling persists numeric scale on a multiline named rule"
+grep -Fx '  vrr = 2,' "$monitor_lua" >/dev/null || fail "monitor scaling keeps named-rule vrr"
+grep -Fx '  mode = "2560x1600@60",' "$monitor_lua" >/dev/null ||
+  fail "monitor scaling keeps named-rule mode"
+pass "monitor scaling persists numeric scale on a multiline named rule"
+
+write_named_oneline_config
+OMARCHY_TEST_MONITOR_SCALE=2 run_scaling 1.6
+grep -F 'hl.monitor({ output = "eDP-1", mode = "preferred", position = "0x0", scale = 1.6 })' "$monitor_lua" >/dev/null ||
+  fail "monitor scaling persists numeric scale on a one-line named rule"
+pass "monitor scaling persists numeric scale on a one-line named rule"
+
+write_named_variable_config
+OMARCHY_TEST_MONITOR_SCALE=2 run_scaling 1.6
+grep -F 'scale = omarchy_monitor_scale' "$monitor_lua" >/dev/null ||
+  fail "monitor scaling leaves a variable named-rule scale untouched"
+grep -Fx 'local omarchy_monitor_scale = 1.6' "$monitor_lua" >/dev/null ||
+  fail "monitor scaling persists the catch-all local behind a variable named rule"
+pass "monitor scaling leaves a variable named-rule scale untouched"
