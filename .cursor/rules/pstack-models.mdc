@@ -4,22 +4,23 @@ alwaysApply: true
 ---
 # pstack model configuration. One line per role. Delete a line to fall back to the skill default.
 # `inherit-parent` or `auto` as a value: the role runs on the parent chat model (omit Task `model`). Alias entries in a panel list still count toward its fan-out.
-# Slugs remapped from skill defaults to models this session can spawn. Unavailable defaults were grok-4.6-fast-xhigh, gpt-5.6-sol-max, claude-fable-5-thinking-max, claude-opus-5-thinking-xhigh.
+# Slugs remapped from skill defaults to models this session can spawn. Fable and Sol use `high` (lowest thinking) to keep token use down.
+# Unavailable defaults were grok-4.6-fast-xhigh, gpt-5.6-sol-max, claude-fable-5-thinking-max, claude-opus-5-thinking-xhigh.
 feature, refactoring: composer-2.5
-bug-fix: gpt-5.6-sol-xhigh
-perf-issue: gpt-5.6-sol-xhigh
-hillclimb: gpt-5.6-sol-xhigh
-judgment and prose: claude-fable-5-thinking-xhigh
-hardest tasks: claude-fable-5-thinking-xhigh
+bug-fix: gpt-5.6-sol-high
+perf-issue: gpt-5.6-sol-high
+hillclimb: gpt-5.6-sol-high
+judgment and prose: claude-fable-5-thinking-high
+hardest tasks: claude-fable-5-thinking-high
 how explorer: composer-2.5
-how explainer: claude-fable-5-thinking-xhigh
-how critics: claude-fable-5-thinking-xhigh, gpt-5.6-sol-xhigh, cursor-grok-4.5-high, claude-opus-5-thinking-high
+how explainer: claude-fable-5-thinking-high
+how critics: claude-fable-5-thinking-high, gpt-5.6-sol-high, cursor-grok-4.5-high, claude-opus-5-thinking-high
 why investigators: cursor-grok-4.5-high
-why synthesizer: claude-fable-5-thinking-xhigh
-reflect tooling: gpt-5.6-sol-xhigh
-reflect judgment, divergent, synthesizer: claude-fable-5-thinking-xhigh
-arena runners: claude-fable-5-thinking-xhigh, gpt-5.6-sol-xhigh, cursor-grok-4.5-high, claude-opus-5-thinking-high
-arena cross-judge pool: claude-fable-5-thinking-xhigh, gpt-5.6-sol-xhigh, cursor-grok-4.5-high, claude-opus-5-thinking-high
+why synthesizer: claude-fable-5-thinking-high
+reflect tooling: gpt-5.6-sol-high
+reflect judgment, divergent, synthesizer: claude-fable-5-thinking-high
+arena runners: claude-fable-5-thinking-high, gpt-5.6-sol-high, cursor-grok-4.5-high, claude-opus-5-thinking-high
+arena cross-judge pool: claude-fable-5-thinking-high, gpt-5.6-sol-high, cursor-grok-4.5-high, claude-opus-5-thinking-high
 swarm workers: composer-2.5
-architect runners: claude-fable-5-thinking-xhigh, gpt-5.6-sol-xhigh, cursor-grok-4.5-high, claude-opus-5-thinking-high
-interrogate reviewers: claude-fable-5-thinking-xhigh, gpt-5.6-sol-xhigh, cursor-grok-4.5-high, claude-opus-5-thinking-high
+architect runners: claude-fable-5-thinking-high, gpt-5.6-sol-high, cursor-grok-4.5-high, claude-opus-5-thinking-high
+interrogate reviewers: claude-fable-5-thinking-high, gpt-5.6-sol-high, cursor-grok-4.5-high, claude-opus-5-thinking-high
