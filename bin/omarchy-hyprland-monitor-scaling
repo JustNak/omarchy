@@ -146,6 +146,10 @@ persist_named_output_scale() {
     rm -f "$tmp"
     return 1
   }
+  if cmp -s "$tmp" "$monitor_lua"; then
+    rm -f "$tmp"
+    return 0
+  fi
   mv "$tmp" "$monitor_lua"
 }
 

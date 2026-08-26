@@ -189,3 +189,16 @@ grep -F 'scale = omarchy_monitor_scale' "$monitor_lua" >/dev/null ||
 grep -Fx 'local omarchy_monitor_scale = 1.6' "$monitor_lua" >/dev/null ||
   fail "monitor scaling persists the catch-all local behind a variable named rule"
 pass "monitor scaling leaves a variable named-rule scale untouched"
+
+# Stock catch-all-only: named persist must be a no-op write so Hyprland does
+# not auto-reload the stale local before sed runs.
+write_monitor_config
+cat >>"$monitor_lua" <<'LUA'
+hl.monitor({ output = "", mode = "preferred", position = "auto", scale = omarchy_monitor_scale })
+LUA
+OMARCHY_TEST_MONITOR_SCALE=2 run_scaling 1.6
+grep -Fx 'local omarchy_monitor_scale = 1.6' "$monitor_lua" >/dev/null ||
+  fail "monitor scaling still persists the catch-all local on stock configs"
+grep -Fx 'hl.monitor({ output = "", mode = "preferred", position = "auto", scale = omarchy_monitor_scale })' "$monitor_lua" >/dev/null ||
+  fail "monitor scaling leaves the stock catch-all rule untouched"
+pass "monitor scaling leaves the stock catch-all rule untouched"
