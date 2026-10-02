@@ -90,3 +90,88 @@ PY
 
 pass "open_hw keeps the fd when brightness_hw_changed has never fired"
 pass "open_hw still raises other read errors"
+
+python3 - "$ROOT/bin/omarchy-brightness-keyboard-watch" <<'PY'
+import runpy
+import sys
+
+g = runpy.run_path(sys.argv[1])
+packets = g["chassis_packets"]
+
+def starts(seq, sig):
+    return any(pkt[: len(sig)] == bytes(sig) for pkt in seq)
+
+off = packets(0, (9, 8, 7))
+if not starts(off, (0x5D, 0xC0, 0x03, 0x00)) or starts(off, (0x5D, 0xC0, 0x03, 0x01)):
+    raise SystemExit(f"off packets lost the leave-mode byte: {[pkt[:4].hex() for pkt in off]}")
+
+lit = packets(2, (9, 8, 7))
+if starts(lit, (0x5D, 0xC0, 0x03, 0x01)) or starts(lit, (0x5D, 0xC0, 0x03, 0x00)):
+    raise SystemExit("a lit level still enters host dynamic-lighting")
+if not starts(lit, (0x5D, 0xBA, 0xC5, 0xC4, 2)):
+    raise SystemExit("lit level did not reach the brightness packet")
+zones = [pkt for pkt in lit if pkt[1] == 0xB3]
+if [pkt[2] for pkt in zones] != [0, 1] or any(pkt[4:7] != bytes((9, 8, 7)) for pkt in zones):
+    raise SystemExit(f"zones={[pkt[:8].hex() for pkt in zones]}")
+PY
+
+pass "off leaves host dynamic-lighting and a lit level never enters it"
+
+python3 - "$ROOT/bin/omarchy-brightness-keyboard-watch" <<'PY'
+import runpy
+import sys
+
+ns = runpy.run_path(sys.argv[1])["chassis_packets"].__globals__
+if ns["Gio"] is None:
+    ns["Gio"] = object()
+
+led = ns["ChassisLed"]()
+led._path = "/xyz/ljones/aura/18c6_stale"
+seen = []
+
+def send_one(packet):
+    seen.append((led._path, packet[1]))
+    if led._path == "/xyz/ljones/aura/18c6_stale":
+        raise RuntimeError("stale path")
+
+led._send_one = send_one
+led.apply(ns["Apply"](level=1, rgb=(1, 2, 3), osd=False))
+if not seen or seen[0] != ("/xyz/ljones/aura/18c6_stale", 0xB9):
+    raise SystemExit(f"first send did not use the cached path: {seen[:1]}")
+if not any(path is None and kind == 0xBA for path, kind in seen[1:]):
+    raise SystemExit(f"retry did not resend after the cache clear: {seen[:4]}")
+PY
+
+pass "a stale Aura path is dropped and the same level is sent again"
+
+python3 - "$ROOT/bin/omarchy-brightness-keyboard-watch" <<'PY'
+import runpy
+import sys
+
+ns = runpy.run_path(sys.argv[1])["apply"].__globals__
+order = []
+
+class Dummy:
+    def wait(self, timeout=2):
+        order.append("wait")
+
+    def kill(self):
+        order.append("kill")
+
+def show_osd(cmd):
+    order.append(("osd", cmd.osd))
+    return Dummy()
+
+def chassis_apply(cmd):
+    order.append(("chassis", cmd.level))
+
+ns["show_osd"] = show_osd
+ns["CHASSIS"].apply = chassis_apply
+ns["apply"](ns["Apply"](level=1, rgb=(4, 5, 6), osd=True))
+ns["apply"](ns["Apply"](level=1, rgb=(4, 5, 6), osd=False))
+if order != [("osd", True), ("chassis", 1), "wait", ("chassis", 1)]:
+    raise SystemExit(f"order={order}")
+PY
+
+pass "the OSD opens before the chassis writes"
+pass "sync does not open the OSD"
