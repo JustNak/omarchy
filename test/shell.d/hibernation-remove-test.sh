@@ -157,3 +157,25 @@ if grep -q 'limine-mkinitcpio' "$log"; then
   fail "remove does not rebuild when only rtc-alarm.conf is present"
 fi
 pass "remove is a no-op when only rtc-alarm.conf is present"
+
+reset_tree
+printf 'HOOKS+=(resume)\n' >"$fake/etc/mkinitcpio.conf.d/omarchy_resume.conf"
+printf 'KERNEL_CMDLINE[default]+=" resume=/dev/mapper/root resume_offset=123"\n' \
+  >"$fake/etc/limine-entry-tool.d/resume.conf"
+chmod a-w "$fake/etc/limine-entry-tool.d"
+
+status=0
+output=$(run_remove) || status=$?
+chmod u+w "$fake/etc/limine-entry-tool.d"
+
+if (( status == 0 )); then
+  fail "remove fails when resume.conf cannot be deleted" "$output"
+fi
+[[ -f $fake/etc/limine-entry-tool.d/resume.conf ]] ||
+  fail "resume.conf remains when deletion fails"
+if grep -q 'limine-mkinitcpio' "$log"; then
+  fail "remove does not rebuild when resume.conf deletion fails"
+fi
+[[ $output != *"Hibernation removed"* ]] ||
+  fail "remove does not report success when resume.conf deletion fails" "$output"
+pass "remove stops when resume.conf cannot be deleted"
