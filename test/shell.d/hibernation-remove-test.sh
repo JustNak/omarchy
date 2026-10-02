@@ -162,11 +162,24 @@ reset_tree
 printf 'HOOKS+=(resume)\n' >"$fake/etc/mkinitcpio.conf.d/omarchy_resume.conf"
 printf 'KERNEL_CMDLINE[default]+=" resume=/dev/mapper/root resume_offset=123"\n' \
   >"$fake/etc/limine-entry-tool.d/resume.conf"
-chmod a-w "$fake/etc/limine-entry-tool.d"
+# A non-writable directory does not stop root, so the stub refuses this unlink.
+cat >"$stub/rm" <<'SH'
+#!/bin/bash
+for arg in "$@"; do
+  case "$arg" in
+    */limine-entry-tool.d/resume.conf)
+      printf 'rm: cannot remove %s: Permission denied\n' "$arg" >&2
+      exit 1
+      ;;
+  esac
+done
+exec /usr/bin/rm "$@"
+SH
+chmod +x "$stub/rm"
 
 status=0
 output=$(run_remove) || status=$?
-chmod u+w "$fake/etc/limine-entry-tool.d"
+rm -f "$stub/rm"
 
 if (( status == 0 )); then
   fail "remove fails when resume.conf cannot be deleted" "$output"
