@@ -242,6 +242,10 @@ class Poller:
             if timeout != ns["SOFTWARE_MS"]:
                 raise SystemExit(f"timeout={timeout}")
             return []
+        if self.n == 2:
+            if timeout != 0:
+                raise SystemExit(f"recheck timeout={timeout}")
+            return []
         raise SystemExit(0)
 
 def open_hw():
@@ -266,3 +270,87 @@ PY
 
 pass "startup rechecks the level after the sysfs drain"
 pass "a brightnessctl write is applied without an OSD"
+
+python3 - "$ROOT/bin/omarchy-brightness-keyboard-watch" <<'PY'
+import os
+import runpy
+import select
+import sys
+
+ns = runpy.run_path(sys.argv[1])["watch"].__globals__
+calls = []
+real_isfile = os.path.isfile
+real_lseek = os.lseek
+real_read = os.read
+real_close = os.close
+
+def follow(last, *, osd):
+    calls.append((last, osd))
+    return 1 if last is None else last
+
+class Poller:
+    def __init__(self):
+        self.n = 0
+
+    def register(self, *args):
+        return None
+
+    def unregister(self, *args):
+        return None
+
+    def poll(self, timeout=None):
+        self.n += 1
+        if self.n == 1:
+            return []
+        if self.n == 2:
+            return [(3, select.POLLPRI)]
+        raise SystemExit(0)
+
+def open_hw():
+    calls.append("open")
+    return 3
+
+os.path.isfile = lambda path: True
+os.lseek = lambda fd, off, whence: 0
+os.read = lambda fd, n: b""
+os.close = lambda fd: None
+ns["follow"] = follow
+ns["open_hw"] = open_hw
+ns["select"].poll = lambda: Poller()
+try:
+    ns["watch"]()
+except SystemExit as exc:
+    if exc.code not in (0, None):
+        raise
+finally:
+    os.path.isfile = real_isfile
+    os.lseek = real_lseek
+    os.read = real_read
+    os.close = real_close
+
+if (1, False) in calls[3:]:
+    raise SystemExit(f"silent apply ate the key: {calls}")
+if (1, True) not in calls:
+    raise SystemExit(f"hardware path did not show the OSD: {calls}")
+PY
+
+pass "a key that arrives as the re-read wakes still shows the OSD"
+
+python3 - "$ROOT/bin/omarchy-brightness-keyboard-watch" <<'PY'
+import runpy
+import sys
+
+ns = runpy.run_path(sys.argv[1])["apply"].__globals__
+if ns["Gio"] is None:
+    ns["Gio"] = object()
+ns["os"].environ["XDG_RUNTIME_DIR"] = "/dev/null/omarchy-brightness-lock"
+sent = []
+led = ns["ChassisLed"]()
+led._path = "/xyz/ljones/aura/18c6_4_5"
+led._send_one = lambda packet: sent.append(packet[1])
+led.apply(ns["Apply"](level=2, rgb=(1, 2, 3), osd=False))
+if 0xBA not in sent:
+    raise SystemExit(f"chassis writes did not run without a lock dir: {sent}")
+PY
+
+pass "theme sync still sends chassis packets when the lock directory cannot be created"

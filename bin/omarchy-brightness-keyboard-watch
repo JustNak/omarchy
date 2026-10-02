@@ -214,18 +214,27 @@ class ChassisLed:
                     if attempt == 2:
                         print(f"chassis LED: {exc}", file=sys.stderr)
         finally:
-            os.close(lock)
+            if lock is not None:
+                os.close(lock)
 
 
-def _chassis_lock() -> int:
-    runtime = os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}")
-    os.makedirs(runtime, exist_ok=True)
-    fd = os.open(
-        os.path.join(runtime, "omarchy-brightness-keyboard-watch.lock"),
-        os.O_CREAT | os.O_RDWR,
-        0o644,
-    )
-    fcntl.flock(fd, fcntl.LOCK_EX)
+def _chassis_lock() -> int | None:
+    # A theme sync with no session runtime dir must still send packets.
+    runtime = os.environ.get("XDG_RUNTIME_DIR") or f"/run/user/{os.getuid()}"
+    try:
+        os.makedirs(runtime, exist_ok=True)
+        fd = os.open(
+            os.path.join(runtime, "omarchy-brightness-keyboard-watch.lock"),
+            os.O_CREAT | os.O_RDWR,
+            0o644,
+        )
+    except OSError:
+        return None
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+    except OSError:
+        os.close(fd)
+        return None
     return fd
 
 
@@ -262,7 +271,8 @@ def watch() -> int:
 
     while True:
         events = poller.poll(SOFTWARE_MS)
-        if not events:
+        # A key that lands as this wake returns must take the OSD path.
+        if not events and not poller.poll(0):
             last = follow(last, osd=False)
             continue
         os.lseek(fd, 0, os.SEEK_SET)
