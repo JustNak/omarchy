@@ -51,9 +51,6 @@ printf 'limine-mkinitcpio\n' >>"\$TEST_LOG"
 if [[ -f $fake/etc/limine-entry-tool.d/resume.conf ]]; then
   printf 'resume.conf-present-at-rebuild\n' >>"\$TEST_LOG"
 fi
-if [[ -f $fake/etc/limine-entry-tool.d/rtc-alarm.conf ]]; then
-  printf 'rtc-alarm.conf-present-at-rebuild\n' >>"\$TEST_LOG"
-fi
 SH
 chmod +x "$stub"/*
 
@@ -89,8 +86,8 @@ run_remove >/dev/null
 
 [[ ! -f $fake/etc/limine-entry-tool.d/resume.conf ]] ||
   fail "remove deletes resume.conf"
-[[ ! -f $fake/etc/limine-entry-tool.d/rtc-alarm.conf ]] ||
-  fail "remove deletes rtc-alarm.conf"
+[[ -f $fake/etc/limine-entry-tool.d/rtc-alarm.conf ]] ||
+  fail "remove leaves rtc-alarm.conf"
 [[ ! -f $fake/etc/mkinitcpio.conf.d/omarchy_resume.conf ]] ||
   fail "remove deletes the mkinitcpio resume hook"
 [[ ! -f $fake/swap/swapfile ]] ||
@@ -103,21 +100,17 @@ grep -Fxq 'limine-mkinitcpio' "$log" ||
 if grep -Fxq 'resume.conf-present-at-rebuild' "$log"; then
   fail "resume.conf is gone before limine-mkinitcpio"
 fi
-if grep -Fxq 'rtc-alarm.conf-present-at-rebuild' "$log"; then
-  fail "rtc-alarm.conf is gone before limine-mkinitcpio"
-fi
 if grep -q 'keyboard-backlight' "$log"; then
   fail "remove does not mention keyboard-backlight at runtime"
 fi
 
-# Combined drop-in rm must appear before the rebuild in the sudo log.
 rm_line=$(grep -n $'sudo\trm\t-f\t' "$log" | grep 'limine-entry-tool.d/resume.conf' | head -n1 | cut -d: -f1)
 rebuild_line=$(grep -n $'sudo\tlimine-mkinitcpio$' "$log" | head -n1 | cut -d: -f1)
 if [[ -z $rm_line || -z $rebuild_line ]] || (( rm_line >= rebuild_line )); then
-  fail "drop-ins are removed before limine-mkinitcpio" "$(cat "$log")"
+  fail "resume.conf is removed before limine-mkinitcpio" "$(cat "$log")"
 fi
 
-pass "remove deletes resume drop-ins before limine-mkinitcpio"
+pass "remove deletes resume.conf before limine-mkinitcpio"
 
 # --- drop-ins only (hook already gone) -------------------------------------
 
@@ -131,14 +124,14 @@ run_remove >/dev/null
 
 [[ ! -f $fake/etc/limine-entry-tool.d/resume.conf ]] ||
   fail "remove still deletes leftover resume.conf when the hook is already gone"
-[[ ! -f $fake/etc/limine-entry-tool.d/rtc-alarm.conf ]] ||
-  fail "remove still deletes leftover rtc-alarm.conf when the hook is already gone"
+[[ -f $fake/etc/limine-entry-tool.d/rtc-alarm.conf ]] ||
+  fail "remove leaves rtc-alarm.conf when the hook is already gone"
 grep -Fxq 'limine-mkinitcpio' "$log" ||
-  fail "remove rebuilds after deleting leftover drop-ins"
+  fail "remove rebuilds after deleting leftover resume.conf"
 if grep -Fxq 'resume.conf-present-at-rebuild' "$log"; then
   fail "leftover resume.conf is gone before limine-mkinitcpio"
 fi
-pass "remove deletes leftover drop-ins even when the mkinitcpio hook is already gone"
+pass "remove deletes leftover resume.conf even when the mkinitcpio hook is already gone"
 
 # --- nothing configured ----------------------------------------------------
 
@@ -150,3 +143,17 @@ if grep -q 'limine-mkinitcpio' "$log"; then
   fail "remove does not rebuild when hibernation is not set up"
 fi
 pass "remove is a no-op when hibernation is not set up"
+
+reset_tree
+printf 'KERNEL_CMDLINE[default]+=" rtc_cmos.use_acpi_alarm=1"\n' \
+  >"$fake/etc/limine-entry-tool.d/rtc-alarm.conf"
+
+output=$(run_remove)
+[[ $output == *"Hibernation is not set up"* ]] ||
+  fail "remove reports hibernation is not set up when only rtc-alarm.conf is present" "$output"
+[[ -f $fake/etc/limine-entry-tool.d/rtc-alarm.conf ]] ||
+  fail "remove leaves rtc-alarm.conf when hibernation is not set up"
+if grep -q 'limine-mkinitcpio' "$log"; then
+  fail "remove does not rebuild when only rtc-alarm.conf is present"
+fi
+pass "remove is a no-op when only rtc-alarm.conf is present"
