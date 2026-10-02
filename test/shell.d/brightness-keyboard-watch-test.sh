@@ -175,3 +175,94 @@ PY
 
 pass "the OSD opens before the chassis writes"
 pass "sync does not open the OSD"
+
+python3 - "$ROOT/bin/omarchy-brightness-keyboard-watch" <<'PY'
+import os
+import runpy
+import sys
+import tempfile
+
+ns = runpy.run_path(sys.argv[1])["apply"].__globals__
+if ns["Gio"] is None:
+    ns["Gio"] = object()
+
+runtime = tempfile.mkdtemp()
+ns["os"].environ["XDG_RUNTIME_DIR"] = runtime
+order = []
+real_flock = ns["fcntl"].flock
+
+def flock(fd, op):
+    order.append("lock")
+    return real_flock(fd, op)
+
+ns["fcntl"].flock = flock
+led = ns["ChassisLed"]()
+led._path = "/xyz/ljones/aura/18c6_4_5"
+
+def send_one(packet):
+    order.append("send")
+
+led._send_one = send_one
+led.apply(ns["Apply"](level=1, rgb=(1, 2, 3), osd=False))
+led.apply(ns["Apply"](level=1, rgb=(1, 2, 3), osd=False))
+if order[0] != "lock" or "send" not in order:
+    raise SystemExit(f"order={order[:4]}")
+if not os.path.exists(os.path.join(runtime, "omarchy-brightness-keyboard-watch.lock")):
+    raise SystemExit("lock file was not created")
+PY
+
+pass "a theme sync cannot interleave chassis packets with the waiter"
+
+python3 - "$ROOT/bin/omarchy-brightness-keyboard-watch" <<'PY'
+import os
+import runpy
+import sys
+
+ns = runpy.run_path(sys.argv[1])["watch"].__globals__
+calls = []
+real_isfile = os.path.isfile
+
+def follow(last, *, osd):
+    calls.append((last, osd))
+    return 1 if last is None else last
+
+class Poller:
+    def __init__(self):
+        self.n = 0
+
+    def register(self, *args):
+        return None
+
+    def unregister(self, *args):
+        return None
+
+    def poll(self, timeout=None):
+        self.n += 1
+        if self.n == 1:
+            if timeout != ns["SOFTWARE_MS"]:
+                raise SystemExit(f"timeout={timeout}")
+            return []
+        raise SystemExit(0)
+
+def open_hw():
+    calls.append("open")
+    return 3
+
+os.path.isfile = lambda path: True
+ns["follow"] = follow
+ns["open_hw"] = open_hw
+ns["select"].poll = lambda: Poller()
+try:
+    ns["watch"]()
+except SystemExit as exc:
+    if exc.code not in (0, None):
+        raise
+finally:
+    os.path.isfile = real_isfile
+
+if calls[:4] != [(None, False), "open", (1, False), (1, False)]:
+    raise SystemExit(f"calls={calls[:4]}")
+PY
+
+pass "startup rechecks the level after the sysfs drain"
+pass "a brightnessctl write is applied without an OSD"

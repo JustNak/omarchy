@@ -5,6 +5,7 @@
 # omarchy:hidden=true
 
 import errno
+import fcntl
 import json
 import os
 import re
@@ -24,6 +25,8 @@ except (ImportError, ValueError):
     pass
 
 OSD_MS = 1200
+# brightnessctl writes do not signal brightness_hw_changed. Lock blank uses that path.
+SOFTWARE_MS = 400
 OSD_LABELS = ("Off", "Low", "Med", "High")
 SYSFS = "/sys/class/leds/asus::kbd_backlight/brightness"
 HW = "/sys/class/leds/asus::kbd_backlight/brightness_hw_changed"
@@ -193,21 +196,37 @@ class ChassisLed:
     def apply(self, cmd: Apply) -> None:
         if Gio is None:
             return
-        if self._path is None:
-            self._path = self._find_path()
+        lock = _chassis_lock()
+        try:
             if self._path is None:
-                return
-        packets = chassis_packets(cmd.level, cmd.rgb)
-        for attempt in (1, 2):
-            try:
-                for packet in packets:
-                    self._send_one(packet)
-                return
-            except Exception as exc:
-                self._path = None
-                self._bus = None
-                if attempt == 2:
-                    print(f"chassis LED: {exc}", file=sys.stderr)
+                self._path = self._find_path()
+                if self._path is None:
+                    return
+            packets = chassis_packets(cmd.level, cmd.rgb)
+            for attempt in (1, 2):
+                try:
+                    for packet in packets:
+                        self._send_one(packet)
+                    return
+                except Exception as exc:
+                    self._path = None
+                    self._bus = None
+                    if attempt == 2:
+                        print(f"chassis LED: {exc}", file=sys.stderr)
+        finally:
+            os.close(lock)
+
+
+def _chassis_lock() -> int:
+    runtime = os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}")
+    os.makedirs(runtime, exist_ok=True)
+    fd = os.open(
+        os.path.join(runtime, "omarchy-brightness-keyboard-watch.lock"),
+        os.O_CREAT | os.O_RDWR,
+        0o644,
+    )
+    fcntl.flock(fd, fcntl.LOCK_EX)
+    return fd
 
 
 CHASSIS = ChassisLed()
@@ -238,10 +257,13 @@ def watch() -> int:
     poller = select.poll()
     fd = open_hw()
     poller.register(fd, select.POLLPRI | select.POLLERR | select.POLLHUP)
+    # open_hw() drains a notification that arrived after the first follow().
+    last = follow(last, osd=False)
 
     while True:
-        events = poller.poll()
+        events = poller.poll(SOFTWARE_MS)
         if not events:
+            last = follow(last, osd=False)
             continue
         os.lseek(fd, 0, os.SEEK_SET)
         os.read(fd, 4096)
