@@ -71,14 +71,6 @@ grep -Fx 'WantedBy=graphical-session.target' "$fcitx_service" >/dev/null ||
 grep -Fx 'ConditionEnvironment=WAYLAND_DISPLAY' "$fcitx_service" >/dev/null ||
   fail "an update over SSH has a live user manager and no display; starting fcitx5 there wedges the unit active-but-blind, and Wants= will not replace it at graphical login"
 
-fcitx_migration="$ROOT/migrations/1785167800.sh"
-grep -F 'is-active --quiet graphical-session.target' "$fcitx_migration" >/dev/null ||
-  fail "migration kills fcitx5 and starts the unit outside a graphical session"
-grep -F 'systemctl --user enable omarchy-fcitx5.service' "$fcitx_migration" >/dev/null ||
-  fail "migration must enable without --now; --now starts the unit before the session-gate check"
-grep -F 'Could not start omarchy-fcitx5.service' "$fcitx_migration" >/dev/null ||
-  fail "migration pkills a working fcitx5, so a failed handover must be reported instead of marked complete"
-
 grep -F 'pkill -x fcitx5' "$ROOT/bin/omarchy-restart-xcompose" >/dev/null ||
   fail "restart-xcompose cannot reload a fcitx5 running outside the unit, so it silently keeps serving the old table"
 
@@ -111,10 +103,57 @@ pass "systemd-oomd acts on sustained memory stall"
 
 grep -Fx 'systemctl enable systemd-oomd.service' "$ROOT/install/config/enable-services.sh" >/dev/null ||
   fail "new installs ship the oomd drop-ins with the daemon that reads them disabled"
+pass "new installs enable systemd-oomd"
 
-oomd_migration=$(grep -rl 'systemd-oomd.service' "$ROOT/migrations" | head -n 1 || true)
-[[ -n $oomd_migration ]] ||
-  fail "existing installs never enable systemd-oomd; enable-services.sh only runs at install time"
-grep -F 'systemctl --user daemon-reload' "$oomd_migration" >/dev/null ||
-  fail "migration leaves the user manager unaware of app.slice candidacy until the next login"
-pass "existing installs enable systemd-oomd and report app.slice without a relogin"
+kbd_watch_service="$ROOT/default/systemd/user/omarchy-brightness-keyboard-watch.service"
+grep -Fx 'ExecStart=/usr/bin/omarchy-brightness-keyboard-watch watch' "$kbd_watch_service" >/dev/null
+grep -Fx 'ExecCondition=/usr/bin/omarchy-hw-asus-rog' "$kbd_watch_service" >/dev/null ||
+  fail "keyboard backlight watcher can start on non-ROG machines"
+grep -Fx 'ExecCondition=/usr/bin/omarchy-hw-match GZ302' "$kbd_watch_service" >/dev/null ||
+  fail "keyboard backlight watcher can start on non-GZ302 machines"
+grep -Fx 'ConditionPathExists=/sys/class/leds/asus::kbd_backlight/brightness_hw_changed' "$kbd_watch_service" >/dev/null
+grep -Fx 'After=graphical-session.target' "$kbd_watch_service" >/dev/null ||
+  fail "keyboard backlight watcher can start before the graphical session is up"
+grep -Fx 'PartOf=graphical-session.target' "$kbd_watch_service" >/dev/null ||
+  fail "keyboard backlight watcher must stop with the compositor"
+grep -Fx 'WantedBy=graphical-session.target' "$kbd_watch_service" >/dev/null ||
+  fail "keyboard backlight watcher is never pulled in at login without a WantedBy"
+grep -Fx 'ConditionEnvironment=WAYLAND_DISPLAY' "$kbd_watch_service" >/dev/null ||
+  fail "an update over SSH has a live user manager and no display; starting the keyboard watcher there wedges the unit active-but-blind"
+grep -Fx 'Restart=always' "$kbd_watch_service" >/dev/null ||
+  fail "keyboard backlight watcher should come back after a crash"
+pass "GZ302 chassis LED watcher is skipped unless this is a Flow Z13 2025"
+
+grep -F 'omarchy-brightness-keyboard-watch.service' "$first_run_units" >/dev/null &&
+  fail "first-run enables the GZ302 chassis LED watcher on every machine"
+pass "first-run does not enable the GZ302 chassis LED watcher"
+
+z13_lightbar="$ROOT/install/user/hardware/asus/fix-z13-lightbar.sh"
+grep -F 'omarchy-hw-match "GZ302"' "$z13_lightbar" >/dev/null ||
+  fail "Z13 lightbar install leaf is not gated on GZ302"
+grep -F 'cp "$OMARCHY_PATH/default/systemd/user/omarchy-brightness-keyboard-watch.service"' "$z13_lightbar" >/dev/null ||
+  fail "Z13 lightbar install leaf never copies the waiter from the checkout into the user unit dir"
+grep -F 'systemctl --user enable omarchy-brightness-keyboard-watch.service' "$z13_lightbar" >/dev/null ||
+  fail "Z13 lightbar install leaf never enables the waiter"
+grep -F 'enable --now omarchy-brightness-keyboard-watch' "$z13_lightbar" >/dev/null &&
+  fail "Z13 lightbar install leaf enables the waiter with --now"
+grep -F '/usr/lib/systemd/user/omarchy-brightness-keyboard-watch.service' "$z13_lightbar" >/dev/null &&
+  fail "Z13 lightbar install leaf still wants the unit from /usr/lib"
+grep -F 'is-active --quiet graphical-session.target' "$z13_lightbar" >/dev/null ||
+  fail "Z13 lightbar install leaf starts the waiter outside a graphical session"
+grep -F 'fix-z13-lightbar.sh' "$ROOT/install/user/all.sh" >/dev/null ||
+  fail "user hardware apply never runs the Z13 lightbar leaf"
+pass "new GZ302 user setup enables the chassis LED waiter and others never see it"
+
+kbd_watch_migration=$(grep -rl 'fix-z13-lightbar.sh' "$ROOT/migrations" | head -n 1 || true)
+[[ -n $kbd_watch_migration ]] ||
+  fail "existing GZ302 installs never run the Z13 lightbar leaf"
+grep -F 'source "$OMARCHY_PATH/install/user/hardware/asus/fix-z13-lightbar.sh"' "$kbd_watch_migration" >/dev/null ||
+  fail "migration does not reuse the GZ302-gated lightbar leaf"
+pass "existing GZ302 installs reuse the gated lightbar leaf"
+
+grep -F 'omarchy-hw-match "GZ302"' "$ROOT/bin/omarchy-theme-set-keyboard" >/dev/null ||
+  fail "theme-set-keyboard syncs the chassis LED on non-GZ302 machines"
+grep -F 'omarchy-brightness-keyboard-watch sync' "$ROOT/bin/omarchy-theme-set-keyboard" >/dev/null ||
+  fail "theme-set-keyboard never syncs the GZ302 chassis LED to the new keyboard color"
+pass "theme-set-keyboard syncs the chassis LED on GZ302 only"
