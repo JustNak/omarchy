@@ -57,7 +57,7 @@ fi
 
 # limine-mkinitcpio bakes resume.conf into the UKI, so delete it first.
 echo "Removing resume kernel parameters"
-sudo rm -f "$RESUME_DROP_IN"
+sudo rm -f "$RESUME_DROP_IN" || exit 1
 
 echo "Regenerating initramfs..."
 sudo limine-mkinitcpio
